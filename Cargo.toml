@@ -1,0 +1,7 @@
+[workspace]
+
+members = [
+    "crates/blocks",
+    "crates/benches",
+    "crates/blocks_extension",
+]
