@@ -7,6 +7,7 @@ use ndarray::{Axis,Zip};
 use rayon::prelude::*;
 use crate::blas::{sgemm,gemm};
 
+#[derive(Clone, Copy, Debug)]
 pub struct DyadBlock {
     pub parameter_config: DyadBlockParameterConfig,
 }
