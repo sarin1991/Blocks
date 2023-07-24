@@ -27,7 +27,8 @@ where
     for <'a> <T::P as ViewMutRepr>::ViewMut<'a> : AddAssign<T::P>,
 {
     pub fn new(chunk_size:usize, num_blocks: usize,
-        num_threads_per_block: usize, block: T, allocation_config: T::AllocationConfig) -> Self {
+        num_threads_per_block: usize, block: T, 
+        allocation_config: T::AllocationConfig) -> Self {
         Self { 
             chunk_size,
             num_blocks,
@@ -43,11 +44,14 @@ where
         let dim_in = input.shape()[0];
         let dim_out = output.shape()[0];
         let pool = rayon::ThreadPoolBuilder::new().num_threads(self.num_blocks).build().unwrap();
+        let batch_size = input.shape()[1];
+        let min_len = (batch_size/(self.num_blocks*self.chunk_size)).max(1);
         let input_iter = input.axis_chunks_iter(Axis(1), self.chunk_size);
         let output_iter = output.axis_chunks_iter_mut(Axis(1),self.chunk_size);
         pool.install(||{
             (output_iter,input_iter)
             .into_par_iter()
+            .with_min_len(min_len)
             .for_each_init(||(rayon::ThreadPoolBuilder::new().num_threads(self.num_threads_per_block).build().unwrap(),
                 Array2::<f32>::zeros((dim_in,self.chunk_size)),Array2::<f32>::zeros((dim_out,self.chunk_size)),
                 T::create_allocations(&self.allocation_config),T::allocate_forward_context(&self.allocation_config)), 
@@ -57,24 +61,24 @@ where
                 let actual_chunk_size = input.shape()[1];
                 let allocation_mut_view = &mut allocations.view_mut_repr();
                 let fc_mut_view = &mut forward_context.view_mut_repr();
-                if actual_chunk_size==self.chunk_size {
-                    copy_array(&mut block_input.view_mut(),&input);
-                    block_pool.install(||{
+                block_pool.install(||{
+                    if actual_chunk_size==self.chunk_size {
+                        copy_array(&mut block_input.view_mut(),&input);
                         self.block.forward(parameters, &block_input.view(), 
-                        &mut block_output.view_mut(), allocation_mut_view, fc_mut_view);
-                    });
-                    copy_array(&mut output,&block_output.view());
-                }
-                else {
-                    let mut block_input = Array2::<f32>::zeros((dim_in,actual_chunk_size));
-                    let mut block_output = Array2::<f32>::zeros((dim_out,actual_chunk_size));
-                    copy_array(&mut block_input.view_mut(),&input);
-                    block_pool.install(||{
+                        &mut block_output.view_mut(), allocation_mut_view,
+                        fc_mut_view);
+                        copy_array(&mut output,&block_output.view());
+                    }
+                    else {
+                        let mut block_input = Array2::<f32>::zeros((dim_in,actual_chunk_size));
+                        let mut block_output = Array2::<f32>::zeros((dim_out,actual_chunk_size));
+                        copy_array(&mut block_input.view_mut(),&input);
                         self.block.forward(parameters, &block_input.view(), 
-                        &mut block_output.view_mut(), allocation_mut_view, fc_mut_view);
-                    });
-                    copy_array(&mut output,&block_output.view());
-                }
+                        &mut block_output.view_mut(), allocation_mut_view,
+                        fc_mut_view);
+                        copy_array(&mut output,&block_output.view());
+                    }
+                });
             });
         });
     }
@@ -88,12 +92,15 @@ where
         let dim_in = input.shape()[0];
         let dim_out = output_gradients.shape()[0];
         let pool = rayon::ThreadPoolBuilder::new().num_threads(self.num_blocks).build().unwrap();
+        let batch_size = input.shape()[1];
+        let min_len = (batch_size/(self.num_blocks*self.chunk_size)).max(1);
         let in_grad_iter = input_gradients.axis_chunks_iter_mut(Axis(1), self.chunk_size);
         let out_grad_iter = output_gradients.axis_chunks_iter(Axis(1), self.chunk_size);
         let input_iter = input.axis_chunks_iter(Axis(1), self.chunk_size);
         pool.install(||{
             let acc_param_grad : T::P = (in_grad_iter,out_grad_iter,input_iter)
             .into_par_iter()
+            .with_min_len(min_len)
             .fold(|| (rayon::ThreadPoolBuilder::new().num_threads(self.num_threads_per_block).build().unwrap(),
             T::allocate_parameters(&self.allocation_config),T::allocate_forward_context(&self.allocation_config),
             T::create_allocations(&self.allocation_config),Array2::<f32>::zeros((dim_in,self.chunk_size)),

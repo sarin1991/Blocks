@@ -6,6 +6,7 @@ use super::parameters::DyadBlockParameterConfig;
 use ndarray::{Axis,Zip};
 use rayon::prelude::*;
 use crate::blas::{sgemm,gemm};
+use crate::utils::copy_array;
 
 #[derive(Clone, Copy, Debug)]
 pub struct DyadBlock {
@@ -83,6 +84,7 @@ impl EqualBlock for DyadBlock {
         let d_i = self.parameter_config.dim_in;
         let d_o = self.parameter_config.dim_out;
         let dy = self.parameter_config.dyad_dim;
+        let rayon_min_len = (dy/rayon::current_num_threads()).max(1);
         let chunk_size = input.shape()[1];
         let out_grad_dyad = output_gradients.view().into_shape(
             (dy,d_o,chunk_size)).unwrap();
@@ -91,10 +93,12 @@ impl EqualBlock for DyadBlock {
             (dy,d_i,chunk_size)).unwrap();
         let mut in_grad_dyad = input_gradients.view_mut().into_shape(
             (dy,d_i,chunk_size)).unwrap();
-        let in_grad_iter = in_grad_dyad.axis_iter_mut(Axis(0)).into_par_iter();
-        let param_wl_iter = parameter_gradients.w_lower.axis_iter_mut(Axis(0)).into_par_iter();
-        param_wl_iter.zip(in_grad_iter)
+        let in_grad_iter = in_grad_dyad.axis_iter_mut(Axis(0));
+        let param_wl_iter = parameter_gradients.w_lower.axis_iter_mut(Axis(0));
+        (param_wl_iter,in_grad_iter)
+        .into_par_iter()
         .enumerate()
+        .with_min_len(rayon_min_len)
         .for_each(|(index,(wl_grad, in_grad_block))|{
             let wl_mat = parameters.w_lower.index_axis(Axis(0), index);
             let out_grad_block = out_grad_dyad.index_axis(Axis(0), index);
@@ -119,17 +123,14 @@ impl EqualBlock for DyadBlock {
         (in_grad_iter,param_wu_iter,in_iter)
         .into_par_iter()
         .enumerate()
+        .with_min_len(rayon_min_len)
         .for_each_init(|| Array2::<f32>::zeros((d_i,chunk_size)), 
         |in_mat, (index,
             (mut in_grad_block,wu_grad,in_block))|{
             let wu_mat = parameters.w_upper.index_axis(Axis(0), index);
             let out_grad_block = out_grad_dyad.index_axis(Axis(0), index);
             // copy input
-            Zip::from(in_mat.axis_iter_mut(Axis(0)))
-            .and(in_block.axis_iter(Axis(0)))
-            .for_each(|mut in_mat,in_block| {
-                in_mat.as_slice_mut().unwrap().copy_from_slice(in_block.as_slice().unwrap());
-            });
+            copy_array(&mut in_mat.view_mut(),&in_block);
             // w grad
             let transa = cblas::Transpose::None;
             let transb = cblas::Transpose::Ordinary;
@@ -139,11 +140,7 @@ impl EqualBlock for DyadBlock {
             let transb = cblas::Transpose::None;
             gemm(transa, transb, 1.0f32, wu_mat, out_grad_block, 0.0f32, in_mat.view_mut());
             // copy input grad
-            Zip::from(in_grad_block.axis_iter_mut(Axis(0)))
-            .and(in_mat.axis_iter(Axis(0)))
-            .for_each(|mut in_grad,in_mat| {
-                in_grad.as_slice_mut().unwrap().copy_from_slice(in_mat.as_slice().unwrap());
-            });
+            copy_array(&mut in_grad_block,&in_mat.view());
         });
         // bias grad
         match &mut parameter_gradients.bias {
