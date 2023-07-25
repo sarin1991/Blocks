@@ -9,6 +9,7 @@ use super::types::{PyDyadParameter,PyDyadParameterView,PyDyadParameterMutView};
 use crate::conversion::{FromMutRefPy,FromRefPy,IntoPy};
 use blocks::block::EqualBlock;
 use crate::types::array::{ArrayRef2D,ArrayMutRef2D};
+
 #[pyclass]
 pub struct PyDyadBlock {
     dyad_block:DyadBlock,

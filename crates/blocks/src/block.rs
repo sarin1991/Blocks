@@ -77,3 +77,20 @@ where T: EqualBlock
             output, input, parameters, allocations, forward_context)
     }
 }
+
+pub trait FusedBlock {
+    type P:ViewMutRepr;
+    type I:ViewMutRepr;
+    type F:ViewMutRepr;
+    fn forward<'p,'io,'a,'f>(&self, 
+        parameters:&<Self::P as ViewRepr>::View<'p>,
+        input_output:&mut <Self::I as ViewMutRepr>::ViewMut<'io>,
+        forward_context:&mut <Self::F as ViewMutRepr>::ViewMut<'f>);
+    fn backward<'gp,'gio,'io,'p,'f>(&self,
+        parameter_gradients:&mut <Self::P as ViewMutRepr>::ViewMut<'gp>,
+        input_output_gradients:&mut <Self::I as ViewMutRepr>::ViewMut<'gio>,
+        input_output:&<Self::I as ViewRepr>::View<'io>,
+        parameters:&<Self::P as ViewRepr>::View<'p>,
+        forward_context:&<Self::F as ViewRepr>::View<'f>
+    );
+}
