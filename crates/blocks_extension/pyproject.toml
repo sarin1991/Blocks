@@ -13,4 +13,7 @@ classifiers = [
 
 
 [tool.maturin]
+bindings = "pyo3"
+compatibility = "linux"
 features = ["pyo3/extension-module"]
+rustc-args = ["-Ctarget-cpu=native","-lblas"]

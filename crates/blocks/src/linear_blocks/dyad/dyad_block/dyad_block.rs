@@ -46,7 +46,7 @@ impl EqualBlock for DyadBlock {
             let wl_block = wl_mat.as_slice().unwrap();
             let wu_mat = parameters.w_lower.index_axis(Axis(0), index);
             let wu_block = wu_mat.as_slice().unwrap();
-            let transa = cblas::Transpose::Ordinary;
+            let transa = cblas::Transpose::None;
             let transb = cblas::Transpose::None;
             // lower
             let start_index = index*d_i*chunk_size;
@@ -88,30 +88,6 @@ impl EqualBlock for DyadBlock {
         let chunk_size = input.shape()[1];
         let out_grad_dyad = output_gradients.view().into_shape(
             (dy,d_o,chunk_size)).unwrap();
-        // w_l
-        let input_dyad = input.view().into_shape(
-            (dy,d_i,chunk_size)).unwrap();
-        let mut in_grad_dyad = input_gradients.view_mut().into_shape(
-            (dy,d_i,chunk_size)).unwrap();
-        let in_grad_iter = in_grad_dyad.axis_iter_mut(Axis(0));
-        let param_wl_iter = parameter_gradients.w_lower.axis_iter_mut(Axis(0));
-        (param_wl_iter,in_grad_iter)
-        .into_par_iter()
-        .enumerate()
-        .with_min_len(rayon_min_len)
-        .for_each(|(index,(wl_grad, in_grad_block))|{
-            let wl_mat = parameters.w_lower.index_axis(Axis(0), index);
-            let out_grad_block = out_grad_dyad.index_axis(Axis(0), index);
-            let in_block = input_dyad.index_axis(Axis(0), index);
-            // w grad
-            let transa = cblas::Transpose::None;
-            let transb = cblas::Transpose::Ordinary;
-            gemm(transa, transb, 1.0f32, in_block, out_grad_block, 1.0f32, wl_grad);
-            // in grad
-            let transa = cblas::Transpose::None;
-            let transb = cblas::Transpose::None;
-            gemm(transa, transb, 1.0f32, wl_mat, out_grad_block, 0.0f32, in_grad_block);
-        });
         // w_u
         let input_dyad = input.view().into_shape(
             (d_i,dy,chunk_size)).unwrap();
@@ -134,13 +110,37 @@ impl EqualBlock for DyadBlock {
             // w grad
             let transa = cblas::Transpose::None;
             let transb = cblas::Transpose::Ordinary;
-            gemm(transa, transb, 1.0f32, in_mat.view(), out_grad_block, 1.0f32, wu_grad);
+            gemm(transa, transb, 1.0f32, out_grad_block,in_mat.view(), 1.0f32, wu_grad);
             // in grad
-            let transa = cblas::Transpose::None;
+            let transa = cblas::Transpose::Ordinary;
             let transb = cblas::Transpose::None;
             gemm(transa, transb, 1.0f32, wu_mat, out_grad_block, 0.0f32, in_mat.view_mut());
             // copy input grad
             copy_array(&mut in_grad_block,&in_mat.view());
+        });
+        // w_l
+        let input_dyad = input.view().into_shape(
+            (dy,d_i,chunk_size)).unwrap();
+        let mut in_grad_dyad = input_gradients.view_mut().into_shape(
+            (dy,d_i,chunk_size)).unwrap();
+        let in_grad_iter = in_grad_dyad.axis_iter_mut(Axis(0));
+        let param_wl_iter = parameter_gradients.w_lower.axis_iter_mut(Axis(0));
+        (param_wl_iter,in_grad_iter)
+        .into_par_iter()
+        .enumerate()
+        .with_min_len(rayon_min_len)
+        .for_each(|(index,(wl_grad, in_grad_block))|{
+            let wl_mat = parameters.w_lower.index_axis(Axis(0), index);
+            let out_grad_block = out_grad_dyad.index_axis(Axis(0), index);
+            let in_block = input_dyad.index_axis(Axis(0), index);
+            // w grad
+            let transa = cblas::Transpose::None;
+            let transb = cblas::Transpose::Ordinary;
+            gemm(transa, transb, 1.0f32, out_grad_block, in_block, 1.0f32, wl_grad);
+            // in grad
+            let transa = cblas::Transpose::Ordinary;
+            let transb = cblas::Transpose::None;
+            gemm(transa, transb, 1.0f32, wl_mat, out_grad_block, 1.0f32, in_grad_block);
         });
         // bias grad
         match &mut parameter_gradients.bias {

@@ -93,7 +93,7 @@ impl BlockTypeAllocate for DyadBlockParameter {
         let dyad_dim = config.dyad_dim;
         let dim_in = config.dim_in;
         let dim_out = config.dim_out;
-        let shape = (dyad_dim,dim_in,dim_out);
+        let shape = (dyad_dim,dim_out,dim_in);
         let w_upper = Array3::<f32>::zeros(shape);
         let w_lower = Array3::<f32>::zeros(shape);
         let bias = match config.has_bias {
