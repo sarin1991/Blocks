@@ -4,6 +4,7 @@ pub mod types;
 pub mod linear_blocks;
 pub mod layer;
 pub mod utils;
+pub mod activations;
 
 #[cfg(test)]
 mod tests {

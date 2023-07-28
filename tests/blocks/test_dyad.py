@@ -1,5 +1,5 @@
-from pyblocks.blocks.dyad import DyadBlock
-from pyblocks.native.blocks.dyad import Dyad as PyDyad
+from pyblocks.blocks.linear.dyad import DyadBlock
+from pyblocks.native.blocks.linear.dyad import Dyad as PyDyad
 import torch
 import pytest
 
