@@ -7,7 +7,7 @@ class DyadOp(torch.autograd.Function):
     @staticmethod
     def forward(ctx,x,w_upper,w_lower,bias,has_bias,layer):
         x = x.contiguous()
-        dy,di,do = w_upper.shape
+        dy,do,di = w_upper.shape
         ctx.layer = layer
         ctx.has_bias = has_bias
         out = torch.zeros((dy*do,x.size(dim=1)),device=x.device)
@@ -31,7 +31,7 @@ class DyadOp(torch.autograd.Function):
         else:
             x, out, w_upper, w_lower = ctx.saved_tensors
             bias_numpy = None
-        dy,di,do = w_upper.shape
+        dy,do,di = w_upper.shape
         input_gradients = torch.zeros((dy*di,x.size(dim=1)),device=x.device)
         output_gradients = grad_output.contiguous()
         parameters = (w_upper.numpy(),w_lower.numpy(),bias_numpy)
@@ -55,9 +55,9 @@ class DyadBlock(torch.nn.Module):
         self.has_bias = has_bias
         k = 1.0/float(np.sqrt(dyad_dim*dim_in))
         self.layer = PyDyadBlock(dyad_dim,dim_in,dim_out,has_bias)
-        self.w_upper = torch.nn.Parameter(torch.empty((dyad_dim,dim_in,dim_out),dtype=torch.float32))
+        self.w_upper = torch.nn.Parameter(torch.empty((dyad_dim,dim_out,dim_in),dtype=torch.float32))
         torch.nn.init.uniform_(self.w_upper,-k,k)
-        self.w_lower = torch.nn.Parameter(torch.empty((dyad_dim,dim_in,dim_out),dtype=torch.float32))
+        self.w_lower = torch.nn.Parameter(torch.empty((dyad_dim,dim_out,dim_in),dtype=torch.float32))
         torch.nn.init.uniform_(self.w_lower,-k,k)
         if self.has_bias:
             self.bias = torch.nn.Parameter(torch.empty((dyad_dim*dim_out),dtype=torch.float32))
