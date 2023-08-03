@@ -24,12 +24,8 @@ class Dyad(torch.nn.Module):
         if self.has_bias:
             self.bias = torch.nn.Parameter(bias)
     def forward(self,x):
-        print("self.w_lower ",self.w_lower)
-        print("self.w_upper ",self.w_upper)
         x1 = self.w_lower.bmm(x.reshape(self.dyad_dim,self.dim_in,-1)).reshape(self.dyad_dim*self.dim_out,-1)
-        print("x1 ",x1)
         x2 = self.w_upper.bmm(x.reshape(self.dim_in,self.dyad_dim,-1).transpose(0,1)).transpose(0,1).reshape(self.dyad_dim*self.dim_out,-1)
-        print("x1 ",x2)
         out = x1 + x2
         if self.has_bias:
             out = out + self.bias.reshape(-1,1)

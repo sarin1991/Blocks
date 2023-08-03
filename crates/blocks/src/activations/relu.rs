@@ -1,4 +1,4 @@
-use ndarray::{Array2, ArrayViewMut2, ArrayView2};
+use ndarray::{Array2, ArrayViewMut2};
 
 use crate::block::FusedBlock;
 
@@ -30,7 +30,7 @@ impl FusedBlock for ReLUBlock{
     fn backward<'gp,'gio,'io,'p,'f>(&self,
         _parameter_gradients:&mut &mut f32,
         input_output_gradients:&mut ArrayViewMut2<f32>,
-        input_output:&ArrayView2<f32>,
+        input_output:&mut ArrayViewMut2<f32>,
         _parameters:&&f32,
         _allocations:&mut &mut f32,
         _forward_context:&&f32){

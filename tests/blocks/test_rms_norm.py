@@ -1,4 +1,5 @@
-from pyblocks.blocks.activations.relu import ReLUBlock
+from pyblocks.blocks.norm.rms_norm import RMSNORMBlock
+from pyblocks.native.blocks.norm.rms_norm import RMSNorm
 import torch
 import pytest
 
@@ -6,8 +7,9 @@ import pytest
 def test_relu_constant(val):
     dim = 21
     batch_size = 127
-    lay1 = ReLUBlock()
-    lay2 = torch.nn.ReLU()
+    lay1 = RMSNORMBlock(dim,4)
+    lay2 = RMSNorm(dim)
+    lay2.from_weights(lay1.params.data)
     x1 = val * torch.ones((dim,batch_size),dtype=torch.float32)
     x1.requires_grad = True
     x2 = x1.detach().clone()
@@ -17,14 +19,16 @@ def test_relu_constant(val):
     assert torch.allclose(out1,out2)
     out1.sum().backward()
     out2.sum().backward()
-    assert torch.allclose(x1.grad,x2.grad)
+    assert torch.allclose(lay1.params.grad,lay2.params.grad)
+    assert torch.allclose(x1.grad,x2.grad,atol=10**-6,rtol=10**-6)
 
 @pytest.mark.parametrize("val",[-11,-3,1,3,123.4])
 def test_relu_variable(val):
     dim = 21
     batch_size = 127
-    lay1 = ReLUBlock()
-    lay2 = torch.nn.ReLU()
+    lay1 = RMSNORMBlock(dim,4)
+    lay2 = RMSNorm(dim)
+    lay2.from_weights(lay1.params.data)
     shifts = torch.arange(0,dim,dtype=torch.float32).reshape(-1,1)
     x1 = (val * torch.ones((dim,batch_size),dtype=torch.float32) + shifts).detach().clone()
     x1.requires_grad = True
