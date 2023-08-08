@@ -33,6 +33,7 @@ pub struct RMSDyadReLUBlock {
     rms_block: RMSNormBlock,
     dyad_block: DyadBlock,
     relu_block: ReLUBlock,
+    pub parameter_config: RMSDyadReLUBlockParameterConfig,
 }
 
 impl RMSDyadReLUBlock {
@@ -46,6 +47,7 @@ impl RMSDyadReLUBlock {
             rms_block,
             dyad_block,
             relu_block,
+            parameter_config:*rms_dyad_relu_block_config,
         }
     }
 }
