@@ -1,4 +1,5 @@
 use crate::block::EqualBlock;
+use crate::block::BaseBlock;
 use crate::types::types::{ViewRepr, ViewMutRepr};
 use ndarray::{Array2,ArrayView2,ArrayViewMut2};
 use crate::utils::copy_array;
@@ -7,9 +8,57 @@ use rayon::prelude::*;
 use core::ops::AddAssign;
 use super::layer_allocations::LayerAllocations;
 
+pub trait LayerChunk : BaseBlock {
+    fn layer_chunk_forward<'p,'a,'f>(&self, 
+        parameters:&<Self::P as ViewRepr>::View<'p>,
+        input:ArrayViewMut2<f32>,
+        output:ArrayViewMut2<f32>,
+        allocations:&mut <Self::A as ViewMutRepr>::ViewMut<'a>,
+        forward_context:&mut <Self::F as ViewMutRepr>::ViewMut<'f>);
+    fn layer_chunk_backward<'gp,'p,'a,'f>(&self,
+        parameter_gradients:&mut <Self::P as ViewMutRepr>::ViewMut<'gp>,
+        input_gradients:ArrayViewMut2<f32>,
+        output_gradients:ArrayViewMut2<f32>,
+        output:ArrayViewMut2<f32>,
+        input:ArrayViewMut2<f32>,
+        parameters:&<Self::P as ViewRepr>::View<'p>,
+        allocations:&mut <Self::A as ViewMutRepr>::ViewMut<'a>,
+        forward_context:&<Self::F as ViewRepr>::View<'f>
+    );
+}
+
+impl<T> LayerChunk for T 
+where
+    T : EqualBlock<I = Array2<f32>>,
+{
+    fn layer_chunk_forward<'p,'i,'o,'a,'f>(&self, 
+            parameters:&<Self::P as ViewRepr>::View<'p>,
+            input:ArrayViewMut2<f32>,
+            mut output:ArrayViewMut2<f32>,
+            allocations:&mut <Self::A as ViewMutRepr>::ViewMut<'a>,
+            forward_context:&mut <Self::F as ViewMutRepr>::ViewMut<'f>) {
+        self.forward(parameters, &input.view(), &mut output.view_mut(), allocations, forward_context);
+    }
+    fn layer_chunk_backward<'gp,'gi,'go,'o,'i,'p,'a,'f>(&self,
+            parameter_gradients:&mut <Self::P as ViewMutRepr>::ViewMut<'gp>,
+            mut input_gradients:ArrayViewMut2<f32>,
+            output_gradients:ArrayViewMut2<f32>,
+            output:ArrayViewMut2<f32>,
+            input:ArrayViewMut2<f32>,
+            parameters:&<Self::P as ViewRepr>::View<'p>,
+            allocations:&mut <Self::A as ViewMutRepr>::ViewMut<'a>,
+            forward_context:&<Self::F as ViewRepr>::View<'f>
+        ) {
+        self.backward(parameter_gradients, &mut input_gradients.view_mut(), 
+            &output_gradients.view(), &output.view(), 
+            &input.view(), parameters, 
+            allocations, forward_context);
+    }
+}
+
 pub struct Layer<T> 
 where 
-    T:EqualBlock<I = Array2<f32>> + LayerAllocations,
+    T:LayerChunk + LayerAllocations,
     T::P: AddAssign,
     for <'a> <T::P as ViewMutRepr>::ViewMut<'a> : AddAssign<T::P>,
 {
@@ -22,7 +71,7 @@ where
 
 impl<T> Layer<T> 
 where
-    T:EqualBlock<I = Array2<f32>> + LayerAllocations,
+    T:LayerChunk + LayerAllocations,
     T::P: AddAssign,
     for <'a> <T::P as ViewMutRepr>::ViewMut<'a> : AddAssign<T::P>,
 {
@@ -54,7 +103,7 @@ where
             .with_min_len(min_len)
             .for_each_init(||(rayon::ThreadPoolBuilder::new().num_threads(self.num_threads_per_block).build().unwrap(),
                 Array2::<f32>::zeros((dim_in,self.chunk_size)),Array2::<f32>::zeros((dim_out,self.chunk_size)),
-                T::create_allocations(&self.allocation_config),T::allocate_forward_context(&self.allocation_config)), 
+                T::create_allocations(self.chunk_size,&self.allocation_config),T::allocate_forward_context(self.chunk_size,&self.allocation_config)), 
                 |(block_pool,block_input,block_output,
                 allocations, forward_context),
                 (mut output, input)|{
@@ -64,18 +113,20 @@ where
                 block_pool.install(||{
                     if actual_chunk_size==self.chunk_size {
                         copy_array(&mut block_input.view_mut(),&input);
-                        self.block.forward(parameters, &block_input.view(), 
-                        &mut block_output.view_mut(), allocation_mut_view,
-                        fc_mut_view);
+                        self.block.layer_chunk_forward(parameters, block_input.view_mut(), 
+                        block_output.view_mut(), allocation_mut_view, fc_mut_view);
                         copy_array(&mut output,&block_output.view());
                     }
                     else {
                         let mut block_input = Array2::<f32>::zeros((dim_in,actual_chunk_size));
                         let mut block_output = Array2::<f32>::zeros((dim_out,actual_chunk_size));
+                        let mut fc = T::allocate_forward_context(actual_chunk_size,&self.allocation_config);
+                        let mut alloc = T::create_allocations(actual_chunk_size,&self.allocation_config);
+                        let allocation_mut_view = &mut alloc.view_mut_repr();
+                        let fc_mut_view = &mut fc.view_mut_repr();
                         copy_array(&mut block_input.view_mut(),&input);
-                        self.block.forward(parameters, &block_input.view(), 
-                        &mut block_output.view_mut(), allocation_mut_view,
-                        fc_mut_view);
+                        self.block.layer_chunk_forward(parameters, block_input.view_mut(), 
+                        block_output.view_mut(), allocation_mut_view, fc_mut_view);
                         copy_array(&mut output,&block_output.view());
                     }
                 });
@@ -83,11 +134,11 @@ where
         });
     }
     pub fn backward<'gp,'p>(&self,
-        parameter_gradients:&mut <T::P as ViewMutRepr>::ViewMut<'gp>,
+        parameter_gradients:&mut <<T as BaseBlock>::P as ViewMutRepr>::ViewMut<'gp>,
         input_gradients:&mut ArrayViewMut2<f32>,
         output_gradients:&ArrayView2<f32>,
         input:&ArrayView2<f32>,
-        parameters:&<T::P as ViewRepr>::View<'p>,
+        parameters:&<<T as BaseBlock>::P as ViewRepr>::View<'p>,
     ) {
         let dim_in = input.shape()[0];
         let dim_out = output_gradients.shape()[0];
@@ -102,8 +153,8 @@ where
             .into_par_iter()
             .with_min_len(min_len)
             .fold(|| (rayon::ThreadPoolBuilder::new().num_threads(self.num_threads_per_block).build().unwrap(),
-            T::allocate_parameters(&self.allocation_config),T::allocate_forward_context(&self.allocation_config),
-            T::create_allocations(&self.allocation_config),Array2::<f32>::zeros((dim_in,self.chunk_size)),
+            T::allocate_parameters(&self.allocation_config),T::allocate_forward_context(self.chunk_size,&self.allocation_config),
+            T::create_allocations(self.chunk_size,&self.allocation_config),Array2::<f32>::zeros((dim_in,self.chunk_size)),
             Array2::<f32>::zeros((dim_out,self.chunk_size)),Array2::<f32>::zeros((dim_out,self.chunk_size)),
             Array2::<f32>::zeros((dim_in,self.chunk_size))),
             |(block_pool,mut param_grad,mut fc, mut alloc,
@@ -116,12 +167,12 @@ where
                     if actual_chunk_size==self.chunk_size {
                         copy_array(&mut block_out_grad.view_mut(),&out_grad);
                         copy_array(&mut block_input.view_mut(),&input);
-                        self.block.forward(parameters, &block_input.view(), &mut block_output.view_mut(), 
-                        &mut alloc.view_mut_repr(), &mut fc.view_mut_repr());
-                        self.block.backward(&mut param_grad.view_mut_repr(), 
-                        &mut block_in_grad.view_mut_repr(), &block_out_grad.view(), 
-                        &block_output.view(), &block_input.view(), parameters, 
-                        &mut alloc.view_mut_repr(), &fc.view_repr());
+                        self.block.layer_chunk_forward(parameters, block_input.view_mut(),
+                        block_output.view_mut(), &mut alloc.view_mut_repr(), &mut fc.view_mut_repr());
+                        self.block.layer_chunk_backward(&mut param_grad.view_mut_repr(), 
+                        block_in_grad.view_mut(), block_out_grad.view_mut(), 
+                        block_output.view_mut(), block_input.view_mut(), 
+                        parameters, &mut alloc.view_mut_repr(), &fc.view_repr());
                         copy_array(&mut in_grad,&block_in_grad.view());
                     }
                     else {
@@ -129,14 +180,16 @@ where
                         let mut block_out_grad = Array2::<f32>::zeros((dim_out,actual_chunk_size));
                         let mut block_input = Array2::<f32>::zeros((dim_in,actual_chunk_size));
                         let mut block_output = Array2::<f32>::zeros((dim_out,actual_chunk_size));
+                        let mut fc = T::allocate_forward_context(actual_chunk_size,&self.allocation_config);
+                        let mut alloc = T::create_allocations(actual_chunk_size,&self.allocation_config);
                         copy_array(&mut block_out_grad.view_mut(),&out_grad);
                         copy_array(&mut block_input.view_mut(),&input);
-                        self.block.forward(parameters, &block_input.view(), &mut block_output.view_mut(), 
-                        &mut alloc.view_mut_repr(), &mut fc.view_mut_repr());
-                        self.block.backward(&mut param_grad.view_mut_repr(), 
-                        &mut block_in_grad.view_mut_repr(), &block_out_grad.view(), 
-                        &block_output.view(), &block_input.view(), parameters, 
-                        &mut alloc.view_mut_repr(), &fc.view_repr());
+                        self.block.layer_chunk_forward(parameters, block_input.view_mut(),
+                        block_output.view_mut(), &mut alloc.view_mut_repr(), &mut fc.view_mut_repr());
+                        self.block.layer_chunk_backward(&mut param_grad.view_mut_repr(), 
+                        block_in_grad.view_mut(), block_out_grad.view_mut(), 
+                        block_output.view_mut(), block_input.view_mut(), 
+                        parameters, &mut alloc.view_mut_repr(), &fc.view_repr());
                         copy_array(&mut in_grad,&block_in_grad.view());
                     }
                 });   

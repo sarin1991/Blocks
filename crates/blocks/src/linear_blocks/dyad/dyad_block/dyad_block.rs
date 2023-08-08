@@ -176,10 +176,10 @@ impl LayerAllocations for DyadBlock{
     fn allocate_parameters(config:&Self::AllocationConfig) -> Self::P {
         DyadBlockParameter::allocate(config)
     }
-    fn create_allocations(_config:&Self::AllocationConfig) -> Self::A {
+    fn create_allocations(_chunk_size:usize,_config:&Self::AllocationConfig) -> Self::A {
         0.0f32
     }
-    fn allocate_forward_context(_config:&Self::AllocationConfig) -> Self::F {
+    fn allocate_forward_context(_chunk_size:usize,_config:&Self::AllocationConfig) -> Self::F {
         0.0f32
     }
 }

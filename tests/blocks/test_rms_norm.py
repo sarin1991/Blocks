@@ -4,7 +4,7 @@ import torch
 import pytest
 
 @pytest.mark.parametrize("val",[-1,1,3,123.4])
-def test_relu_constant(val):
+def test_rms_constant(val):
     dim = 21
     batch_size = 127
     lay1 = RMSNORMBlock(dim,4)
@@ -23,7 +23,7 @@ def test_relu_constant(val):
     assert torch.allclose(x1.grad,x2.grad,atol=10**-6,rtol=10**-6)
 
 @pytest.mark.parametrize("val",[-11,-3,1,3,123.4])
-def test_relu_variable(val):
+def test_rms_variable(val):
     dim = 21
     batch_size = 127
     lay1 = RMSNORMBlock(dim,4)

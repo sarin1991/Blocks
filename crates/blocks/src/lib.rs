@@ -6,6 +6,7 @@ pub mod layer;
 pub mod utils;
 pub mod activations;
 pub mod norm;
+pub mod non_linear_blocks;
 
 #[cfg(test)]
 mod tests {
