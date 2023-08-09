@@ -3,6 +3,15 @@ import torch
 import blocks_extension
 PyDyadBlock = blocks_extension.blocks.PyDyadBlock
 
+def get_dyad_zero_params(dy,do,di,has_bias):
+    if has_bias:
+        bias_params = torch.zeros(dy*do,dtype=torch.float32)
+    else:
+        bias_params = None
+    w_upper = torch.zeros((dy,do,di),dtype=torch.float32)
+    w_lower = torch.zeros((dy,do,di),dtype=torch.float32)
+    return (w_upper,w_lower,bias_params)
+
 class DyadOp(torch.autograd.Function):
     @staticmethod
     def forward(ctx,x,w_upper,w_lower,bias,has_bias,layer):
@@ -24,7 +33,6 @@ class DyadOp(torch.autograd.Function):
         return out
     @staticmethod
     def backward(ctx, grad_output):
-        parameter_gradients = ctx.layer.allocate_parameters()
         if ctx.has_bias:
             x, out, w_upper, w_lower, bias = ctx.saved_tensors
             bias_numpy = bias.numpy()
@@ -34,15 +42,16 @@ class DyadOp(torch.autograd.Function):
         dy,do,di = w_upper.shape
         input_gradients = torch.zeros((dy*di,x.size(dim=1)),device=x.device)
         output_gradients = grad_output.contiguous()
+        (w_upper_grad,w_lower_grad,bias_grad) = get_dyad_zero_params(dy,do,di,ctx.has_bias)
+        if ctx.has_bias:
+            parameter_gradients = (w_upper_grad.numpy(),w_lower_grad.numpy(),bias_grad.numpy())
+        else:
+            parameter_gradients = (w_upper_grad.numpy(),w_lower_grad.numpy(),None)
         parameters = (w_upper.numpy(),w_lower.numpy(),bias_numpy)
         ctx.layer.backward(parameter_gradients, input_gradients.numpy(),
                            output_gradients.numpy(), out.numpy(), x.numpy(),
                            parameters)
-        f = lambda x: torch.from_numpy(x)
-        w_upper_grad, w_lower_grad, bias_grad = parameter_gradients
-        if ctx.has_bias:
-            bias_grad = f(bias_grad)
-        return input_gradients, f(w_upper_grad), f(w_lower_grad), bias_grad, None, None
+        return input_gradients, w_upper_grad, w_lower_grad, bias_grad, None, None
     
 dyad_op = DyadOp.apply
 

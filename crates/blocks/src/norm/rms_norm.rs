@@ -109,7 +109,7 @@ impl FusedBlock for RMSNormBlock{
             .for_each(|mut in_out,param|{
                 let in_out_slice = &mut in_out.as_slice_mut().unwrap()[0..chunk_size];
                 for i in 0..chunk_size {
-                    in_out_slice[i] = in_out_slice[i]/(param*rms_slice[i]);
+                    in_out_slice[i] = in_out_slice[i]/((*param)*rms_slice[i]);
                 }
             });
             // calc input grad

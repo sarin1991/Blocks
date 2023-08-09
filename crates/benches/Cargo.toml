@@ -9,6 +9,10 @@ edition = "2021"
 name = "dyad"
 path = "src/dyad.rs"
 
+[[bin]]
+name = "rms_dyad_relu"
+path = "src/rms_dyad_relu.rs"
+
 [dependencies]
 blocks = {path = "../blocks"}
 ndarray = {version="0.15.6",features=["rayon","blas"]}
